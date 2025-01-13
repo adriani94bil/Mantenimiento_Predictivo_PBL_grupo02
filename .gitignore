@@ -1,3 +1,4 @@
 .conda/
 bearing_fault/
 product_fault/
+data_augmentation
