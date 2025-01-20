@@ -2,3 +2,5 @@
 bearing_fault/
 product_fault/
 data_augmentation
+src/modelo_entrenado.pth
+src/modelo_resnet18.pth
