@@ -26,14 +26,17 @@ def save_data_to_raw(data):
     """
     file_path = os.path.join('datalake/raw', 'data.json')
 
+    # Leer los datos existentes en el archivo si existe
     if os.path.exists(file_path):
         with open(file_path, 'r') as file:
             existing_data = json.load(file)
     else:
         existing_data = []
 
+    # Agregar el nuevo elemento al archivo
     existing_data.append(data)
 
+    # Guardar los datos actualizados en el archivo
     with open(file_path, 'w') as file:
         json.dump(existing_data, file, indent=4)
 
@@ -49,12 +52,14 @@ def send_element():
             element = feed_data[current_index]
             current_index += 1
 
+            # Guardar el elemento actual en datalake/raw/data.json
             save_data_to_raw(element)
 
+            # Simular el envío al productor (puedes imprimir el dato aquí)
             print(f"Preparando elemento para el productor Kafka: {element}")
         else:
-            current_index = 0 
-        time.sleep(5)  
+            current_index = 0  # Reiniciar el índice cuando se procesen todos los datos
+        time.sleep(5)  # Esperar 5 segundos entre iteraciones
 
 @app.route('/get_element', methods=['GET'])
 def get_element():
@@ -69,5 +74,6 @@ def get_element():
         return jsonify({"error": "No hay más elementos"}), 404
 
 if __name__ == '__main__':
+    # Iniciar el hilo que envía elementos periódicamente
     threading.Thread(target=send_element, daemon=True).start()
     app.run(host='0.0.0.0', port=5000)
