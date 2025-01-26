@@ -14,28 +14,52 @@ consumer_config = {
 consumer = Consumer(consumer_config)
 
 # Tópico correcto al que se está suscribiendo
-consumer.subscribe(['sensor-topic'])  
+consumer.subscribe(['sensor-topic'])
 
 # Crear estructura del Data Lake
 base_path = "datalake"
 processed_path = os.path.join(base_path, "processed")
-os.makedirs(processed_path, exist_ok=True)  
+os.makedirs(processed_path, exist_ok=True)
 
-# Cargar el modelo de predicción (Random Forest)
+# Cargar el modelo de predicción
 model_filename = 'modelo_random_forest_best.pkl'
-
 try:
     if os.path.exists(model_filename):
         with open(model_filename, 'rb') as model_file:
             model = pickle.load(model_file)
     else:
-        raise FileNotFoundError(f"El modelo {model_filename} no se encontró. Asegúrate de que el archivo exista.")
+        raise FileNotFoundError(f"El modelo {model_filename} no se encontró.")
 except Exception as e:
     print(f"Error al cargar el modelo: {e}")
     model = None
 
 # Buffer para almacenar datos temporalmente
 buffer = []
+
+def parse_json_stream(data):
+    """
+    Divide un flujo de texto con múltiples objetos JSON concatenados.
+    """
+    json_objects = []
+    buffer = ""
+    brace_count = 0
+
+    for char in data:
+        if char == "{":
+            brace_count += 1
+        if char == "}":
+            brace_count -= 1
+        
+        buffer += char
+        
+        if brace_count == 0 and buffer.strip():
+            try:
+                json_objects.append(json.loads(buffer))
+            except json.JSONDecodeError as e:
+                print(f"Error al decodificar JSON: {e}")
+            buffer = ""
+
+    return json_objects
 
 def make_prediction(data):
     """
@@ -94,6 +118,8 @@ def add_timestamp(record):
     return record
 
 try:
+    output_filename = os.path.join(processed_path, "sensor_data.json")
+    
     while True:
         msg = consumer.poll(1.0)  
         if msg is None:
@@ -102,33 +128,24 @@ try:
             print(f"Error: {msg.error()}")
             continue
 
-        record = json.loads(msg.value().decode('utf-8'))
+        # Procesar múltiples JSON concatenados
+        raw_data = msg.value().decode('utf-8')
+        json_records = parse_json_stream(raw_data)
 
-        df_record = pd.DataFrame([record])
+        for record in json_records:
+            prediction = make_prediction(record)
+            record['prediction'] = prediction
+            record = add_timestamp(record)
+            buffer.append(record)
 
-        prediction = make_prediction(record)
-
-        record['prediction'] = prediction
-
-        record = add_timestamp(record)
-
-        buffer.append(record)
-
-        if len(buffer) >= 5:
-            output_filename = os.path.join(processed_path, f"sensor_data_{len(buffer)}.json")
-            with open(output_filename, 'w') as outfile:
-                json.dump(buffer, outfile, indent=4)
-            print(f"Guardados {len(buffer)} registros en {output_filename}")
-            buffer.clear()
+        # Guardar los datos acumulados como una lista JSON
+        with open(output_filename, 'w') as outfile:
+            json.dump(buffer, outfile, ensure_ascii=False, indent=4)
+        print(f"Guardados {len(buffer)} registros en {output_filename}")
 
 except KeyboardInterrupt:
     print("Interrumpido por el usuario.")
 
 finally:
-    if buffer:
-        output_filename = os.path.join(processed_path, f"sensor_data_remaining.json")
-        with open(output_filename, 'w') as outfile:
-            json.dump(buffer, outfile, indent=4)
-        print(f"Guardados {len(buffer)} registros restantes en {output_filename}")
-
     consumer.close()
+
